@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Родословное древо — интерактивная карта</title>
+<style>
+  :root{
+    --paper:#EAE4D3; --card:#FBF8F0; --card-soft:#F3EEE1;
+    --ink:#2B2A24; --ink-soft:#6B6555; --line:#D8D0BB;
+    --confirmed:#3F5D45; --confirmed-bg:#DFE7DA;
+    --strong:#8A5A28; --strong-bg:#EFE1CB;
+    --weak:#6E6152; --weak-bg:#E7E1D2;
+    --caution:#93655B; --caution-bg:#EBDFDA;
+    --root:#7A4A2E; --root-bg:#F3D9B8;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#1C1B17; --card:#26241E; --card-soft:#2C2A23;
+      --ink:#E9E4D6; --ink-soft:#B4AC98; --line:#3E3B32;
+      --confirmed:#8FB08F; --confirmed-bg:#31402E;
+      --strong:#D6A465; --strong-bg:#453626;
+      --weak:#A79E8C; --weak-bg:#332F27;
+      --caution:#C79A8E; --caution-bg:#3A2C27;
+      --root:#E8B77E; --root-bg:#4A3620;
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;}
+  .app{display:flex;flex-direction:column;height:100%;}
+
+  header{flex:none;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--card-soft);z-index:20;}
+  header h1{font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:18px;margin:0 0 2px;}
+  header p{margin:0;font-size:12.5px;color:var(--ink-soft);}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:8px;font-size:11.5px;}
+  .legend span{display:inline-flex;align-items:center;gap:5px;color:var(--ink-soft);}
+  .sw{width:11px;height:11px;border-radius:3px;flex:none;}
+  .sw.root{background:var(--root);} .sw.confirmed{background:var(--confirmed);}
+  .sw.strong{background:var(--strong);} .sw.weak{background:var(--weak);opacity:.6;}
+  .sw.caution{background:var(--caution);}
+
+  .stage{position:relative;flex:1;overflow:hidden;cursor:grab;touch-action:none;}
+  .stage.dragging{cursor:grabbing;}
+  .canvas{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;}
+  .canvas svg{position:absolute;top:0;left:0;overflow:visible;pointer-events:none;}
+
+  .node{position:absolute;width:200px;padding:8px 10px;background:var(--card);
+    border:1px solid var(--line);border-left:4px solid var(--confirmed);border-radius:8px;
+    cursor:pointer;user-select:none;transition:box-shadow .15s;}
+  .node:hover{box-shadow:0 0 0 2px var(--line);}
+  .node.selected{box-shadow:0 0 0 2px var(--ink);}
+  .node .nm{font-family:Georgia,"Times New Roman",serif;font-size:13.5px;line-height:1.3;}
+  .node .mt{font-size:11px;color:var(--ink-soft);margin-top:2px;line-height:1.3;}
+  .node.root{border-left-color:var(--root);border-width:1.5px;background:var(--root-bg);}
+  .node.root .nm{font-size:15px;font-weight:500;}
+  .node.strong{border-left-color:var(--strong);}
+  .node.weak{border-left-color:var(--weak);opacity:.82;}
+  .node.caution{border-left-color:var(--caution);background:var(--caution-bg);}
+
+  .controls{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:6px;z-index:15;}
+  .controls button{width:38px;height:38px;border-radius:8px;border:1px solid var(--line);
+    background:var(--card);color:var(--ink);font-size:18px;cursor:pointer;}
+  .controls button:active{background:var(--card-soft);}
+  .hint{position:absolute;left:14px;bottom:14px;font-size:11.5px;color:var(--ink-soft);
+    background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px;z-index:15;max-width:220px;}
+
+  .panel{position:absolute;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
+    padding:14px 16px 18px;transform:translateY(100%);transition:transform .2s ease;z-index:25;max-height:42%;overflow:auto;}
+  .panel.open{transform:translateY(0);}
+  .panel .ph{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .panel .nm{font-family:Georgia,"Times New Roman",serif;font-size:17px;}
+  .panel .mt{font-size:12.5px;color:var(--ink-soft);margin-top:3px;}
+  .panel .status-tag{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:20px;margin-top:6px;}
+  .panel .detail{font-size:13px;line-height:1.55;margin-top:10px;max-width:640px;}
+  .panel .close{background:none;border:none;font-size:20px;color:var(--ink-soft);cursor:pointer;line-height:1;padding:2px 6px;}
+  .tag-confirmed{background:var(--confirmed-bg);color:var(--confirmed);}
+  .tag-strong{background:var(--strong-bg);color:var(--strong);}
+  .tag-weak{background:var(--weak-bg);color:var(--weak);}
+  .tag-caution{background:var(--caution-bg);color:var(--caution);}
+  .tag-root{background:var(--root-bg);color:var(--root);}
+
+  @media (max-width:640px){
+    .node{width:150px;padding:6px 8px;}
+    .node .nm{font-size:12px;} .node .mt{font-size:10px;}
+    header h1{font-size:15px;} .legend{font-size:10.5px;}
+    .hint{max-width:160px;font-size:10.5px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Родословное древо Артёма Арсенихина</h1>
+    <p>Перетаскивайте карту, крутите колесо мыши для масштаба, нажимайте на карточки — детали снизу.</p>
+    <div class="legend">
+      <span><i class="sw root"></i>главный субъект</span>
+      <span><i class="sw confirmed"></i>подтверждено</span>
+      <span><i class="sw strong"></i>сильная гипотеза</span>
+      <span><i class="sw weak"></i>слабая / не проверено</span>
+      <span><i class="sw caution"></i>вероятно другая семья</span>
+    </div>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="canvas" id="canvas">
+      <svg id="lines" width="2450" height="2760"></svg>
+    </div>
+    <div class="controls">
+      <button id="zin" aria-label="Увеличить">+</button>
+      <button id="zout" aria-label="Уменьшить">−</button>
+      <button id="zreset" aria-label="Сбросить" style="font-size:13px;">⟲</button>
+    </div>
+    <div class="hint">Совет: начните с колеса мыши, чтобы отдалить — так виднее всё древо целиком.</div>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="ph">
+      <div>
+        <div class="nm" id="p-name"></div>
+        <div class="mt" id="p-meta"></div>
+        <span class="status-tag" id="p-status"></span>
+      </div>
+      <button class="close" id="p-close">✕</button>
+    </div>
+    <div class="detail" id="p-detail"></div>
+  </div>
+</div>
+
+<script>
+const STATUS_LABEL = {root:'главный субъект', confirmed:'подтверждено', strong:'сильная гипотеза', weak:'слабая / не проверено', caution:'вероятно другая семья'};
+
+const PEOPLE = [
+  {id:'artem', name:'Артём Романович Арсенихин', meta:'10.05.1999, Калуга', status:'root', x:180, y:1460,
+    detail:'Главный субъект древа — точка отсчёта, от которой строятся все родственные линии.'},
+
+  {id:'roman', name:'Роман Сергеевич Арсенихин', meta:'02.05.1979, Калуга', status:'confirmed', x:460, y:1080, detail:'Отец Артёма.'},
+  {id:'tatiana_ch', name:'Татьяна (Эмилия) Чувычелова', meta:'сестра Марины', status:'confirmed', x:460, y:1710, detail:'Родная сестра Марины Васильевны, дочь Василия Викторовича и Валентины Михайловны Чувычеловых.'},
+  {id:'marina', name:'Марина Васильевна Чувычелова', meta:'→ Арсенихина', status:'confirmed', x:460, y:1840, detail:'Мать Артёма. Отчество исправлено пользователем — Васильевна, не Сергеевна (совпадает с именем отца, Василия Викторовича).'},
+  {id:'alexander_ch', name:'Александр Чувычелов', meta:'брат Марины', status:'confirmed', x:460, y:1970, detail:'Родной брат Марины Васильевны. Есть дочь Анастасия Александровна.'},
+  {id:'mikh_vl_d', name:'Михаил Владимирович Дюндиков', meta:'сын Владимира', status:'confirmed', x:460, y:2100, detail:'Двоюродный брат Марины по линии Дюндиковых, сын Владимира Михайловича.'},
+  {id:'alex_vl_d', name:'Александр Владимирович Дюндиков', meta:'сын Владимира', status:'confirmed', x:460, y:2230, detail:'Двоюродный брат Марины по линии Дюндиковых, сын Владимира Михайловича.'},
+  {id:'igor_d', name:'Игорь Дюндиков', meta:'сын Любови', status:'confirmed', x:460, y:2360, detail:'Двоюродный брат Марины по линии Дюндиковых, сын Любови Михайловны.'},
+
+  {id:'anastasia_ach', name:'Анастасия Александровна Чувычелова', meta:'дочь Александра', status:'confirmed', x:180, y:1970, detail:'Дочь Александра Чувычелова.'},
+
+  {id:'sergey_a', name:'Сергей Савельевич Арсенихин', meta:'1956–2001, с. Милеево', status:'confirmed', x:740, y:845, detail:'Жил и умер в Калуге. Электрик, затем сталевар на Калужском машиностроительном заводе. Сын Савелия Кузьмича и Анны Федотовны, муж Надежды Сергеевны.'},
+  {id:'nadezhda', name:'Надежда Сергеевна Арсенихина', meta:'', status:'confirmed', x:740, y:1320, detail:'Бабушка Артёма по отцу. Калуга, кондитер. Дочь Сергея Понкратовича Щербакова и Анастасии Фёдоровны Рогожиной.'},
+  {id:'vasily_ch', name:'Василий Викторович Чувычелов', meta:'', status:'confirmed', x:740, y:1750, detail:'Дед Артёма по матери, Набережные Челны. Происхождение пока не выяснено — семья не помнит, откуда он родом. Дети: Татьяна (Эмилия), Марина, Александр.'},
+  {id:'valentina_d', name:'Валентина Михайловна Дюндикова', meta:'1951, родилась на Украине', status:'confirmed', x:740, y:1930, detail:'Бабушка Артёма по матери. Область/район Украины, где родилась, пока не установлены — это ключевой открытый вопрос для украинской ветки. Дочь Михаила Емельяновича Дюндикова, сестра Владимира и Любови.'},
+  {id:'vladimir_d', name:'Владимир Михайлович Дюндиков', meta:'старший брат Валентины', status:'confirmed', x:740, y:2165, detail:'Старший брат Валентины Михайловны. Сыновья — Михаил и Александр Владимировичи.'},
+  {id:'lyubov_d', name:'Любовь Михайловна Дюндикова', meta:'сестра Валентины', status:'confirmed', x:740, y:2360, detail:'Родная сестра Валентины Михайловны. Сын — Игорь.'},
+
+  {id:'savely', name:'Савелий Кузьмич Арсенихин', meta:'≈1936–1938, с. Милеево', status:'confirmed', x:1020, y:650, detail:'Родился в Милееве. Жена — Авдотья, трое детей (один из них — Сергей Савельевич). Сын Кузьмы Егоровича.'},
+  {id:'anna_k', name:'Анна Федотовна Кудряшова', meta:'→ Арсенихина', status:'confirmed', x:1020, y:1040, detail:'Мать Сергея Савельевича, жена Савелия Кузьмича. Дочь Федота Арсентьевича Кудряшова.'},
+  {id:'sergey_sh', name:'Сергей Понкратович Щербаков', meta:'≈1921–1922', status:'confirmed', x:1020, y:1170, detail:'После армии работал слесарем на Полотняно-заводской бумажной фабрике (найден в списке работников фабрики за 1946 год). Место рождения предположительно — Медынский уезд (Полотняно-Заводская волость, д. Старое Уткино), по месту работы и по вероятному отцу Панкрату Васильевичу.'},
+  {id:'anastasia_r', name:'Анастасия Фёдоровна Рогожина', meta:'→ Щербакова, 1921, Старое Уткино', status:'confirmed', x:1020, y:1475, detail:'Родилась в 1921 году в д. Старое Уткино (Полотняно-Заводская волость, Медынский уезд — ныне Дзержинский район Калужской обл.). Дочь Фёдора Рогожина и Александры Григорьевны, сестра лётчика Михаила Фёдоровича.'},
+  {id:'mikhail_r', name:'Михаил Фёдорович Рогожин', meta:'1921, лётчик, погиб 22.10.1944', status:'confirmed', x:1020, y:1625, detail:'Младший лейтенант, лётчик 21-го истребительного авиаполка ВВС КБФ (авиация Балтийского флота). Погиб 22.10.1944. Подтверждён тремя независимыми источниками: семейная память, карточка в военной базе, и подробная военно-историческая реконструкция боевого пути полка (автор Владимир Савончик, proza.ru) — в списке потерь полка запись о нём идёт сразу после лётчика Н. С. Бедарева, сбитого 10.10.1944 истребителями противника в районе Либавы (Лиепаи), что даёт вероятный боевой контекст и его гибели.'},
+  {id:'ivan_ch', name:'Иван Егорович Чувычелов', meta:'1885, Курская губ.', status:'weak', x:1020, y:1750, detail:'Родился в 1885 в Курской губернии, русский, неграмотный. Проживал в с. Верхняя Берёзовка Назаровского района (тогда — Западно-Сибирский край). Лишён избирательных прав, раскулачен, в 1931 сослан в Сусловскую комендатуру, в 1933 бежал. Арестован 13.07.1937, содержался в Ачинской тюрьме, обвинён в антисоветской агитации, осуждён тройкой УНКВД на 10 лет ИТЛ. Реабилитирован 21.06.1989 (источник — мартиролог memorial.krsk.ru). Родство с Василием Викторовичем не доказано — просто однофамилец подходящей эпохи.'},
+  {id:'mikhail_ed', name:'Михаил Емельянович Дюндиков', meta:'', status:'confirmed', x:1020, y:2150, detail:'Отец Валентины, Владимира и Любови Михайловичей/Михайловн.'},
+
+  {id:'kuzma', name:'Кузьма Егорович Арсенихин', meta:'≈1909, с. Милеево', status:'confirmed', x:1300, y:650, detail:'Родился в Милееве. По неподтверждённым независимо местным данным — возможно, председатель колхоза «Заветы Ильича» до 1969 года (источник не найден повторно). Отец Савелия Кузьмича, старший из братьев (Иван Егорович — младший брат).'},
+  {id:'ivan_e', name:'Иван Егорович Арсенихин', meta:'≈1913, брат Кузьмы', status:'confirmed', x:1300, y:780, detail:'Родной младший брат Кузьмы Егоровича.'},
+  {id:'nikifor_e', name:'Никифор Егорович Арсенихин', meta:'1913 — 11.1943', status:'weak', x:1300, y:910, detail:'Место рождения: Хвастовичский район, Калужская обл. Место призыва: Мценский РВК, Орловская обл., дата призыва 26.06.1941. Воинское звание: красноармеец. Умер в ноябре 1943 года. То же отчество и год рождения, что у Ивана Егоровича — либо третий брат Кузьмы, либо путаница имени в устной передаче (возможно, один и тот же человек).'},
+  {id:'fedot_kud', name:'Федот Арсентьевич Кудряшов', meta:'1905, с. Милеево — мл. сержант', status:'confirmed', x:1300, y:1040, detail:'Родился в 1905 прямо в селе Милеево. Младший сержант, воевал на Западном фронте. Награждён орденом Отечественной войны I степени и медалью «За боевые заслуги». Отец Анны Федотовны — ещё один подтверждённый корень в Милееве, отдельный от линии Кузьмы/Егора. Отчество «Арсентьевич» созвучно фамилии Арсенихин, но это, вероятно, совпадение имени, а не родство.'},
+  {id:'pankrat_sh', name:'Панкрат Васильевич Щербаков', meta:'рядовой, ПМВ', status:'strong', x:1300, y:1170, detail:'Рядовой 53-го пехотного Волынского полка. Место рождения: Калужская губ., Медынский уезд. Карточка на выбывших (нижние чины), причина выбытия не уточнена в найденном документе. Редкое имя «Панкрат» точно совпадает с отчеством Сергея Понкратовича — сильный кандидат на роль его отца, хотя документального подтверждения родства нет.'},
+  {id:'fedor_r', name:'Фёдор Рогожин', meta:'', status:'confirmed', x:1300, y:1400, detail:'Отец Анастасии и Михаила Рогожиных, муж Александры Григорьевны. Из Старого Уткино.'},
+  {id:'alexandra_r', name:'Александра Григорьевна Рогожина', meta:'', status:'confirmed', x:1300, y:1550, detail:'Мать Анастасии и Михаила Рогожиных, жена Фёдора.'},
+  {id:'emelyan_d', name:'Емельян Дюндиков', meta:'предполагаемый отец Михаила', status:'weak', x:1300, y:2150, detail:'Предполагаемый отец Михаила Емельяновича — гипотеза построена только на отчестве, документ не найден.'},
+
+  {id:'timofey', name:'Тимофей Арсенихин', meta:'гипотетический, ≈1840–50-е', status:'weak', x:1580, y:300, detail:'Сам не найден ни в одном документе — реконструирован по отчеству четырёх-пяти предполагаемых сыновей из Милеево (Евсигней, Михаил, Трифон, Матвей; возможно, Трофим). Оценка года рождения — по возрасту сына Матвея (≈1872 г.р.). Связь с Егором (прямым предком) не установлена — либо братья, либо отец и сын, либо не родня вовсе; ответ может дать только ревизская сказка ГАКО.'},
+  {id:'fedot_iv', name:'Федот Иванович Арсенихин', meta:'убит в ПМВ, 255-й Аккерманский полк', status:'strong', x:1580, y:500, detail:'Должность — ратник. Убит в Первую мировую войну, служил в 255-м пехотном Аккерманском полку. Место рождения подтверждено сканом именного списка потерь: Калужская губ., Жиздринский уезд, Милеевская волость. Отчество «Иванович» — имя отца Иван, отдельная от Тимофея линия.'},
+  {id:'egor', name:'Егор Арсенихин', meta:'не найден напрямую', status:'weak', x:1580, y:715, detail:'Отец Кузьмы и Ивана (и, возможно, Никифора) Егоровичей. «Егор» — разговорная форма имени Георгий, поэтому его документ мог быть подписан и на «Георгий». Сам ни разу не встретился в военных базах — вероятно, был старше призывного возраста Первой мировой (если Кузьма родился ≈1909, самому Егору в 1914-м могло быть за 40–50). Реконструирован полностью по отчествам детей, самостоятельного документа на него нет.'},
+  {id:'vasily_i_sh', name:'Василий Иванович Щербаков', meta:'унтер-офицер, ПМВ', status:'strong', x:1580, y:950, detail:'Найден пользователем как вероятный отец Панкрата Васильевича (имя «Василий» точно совпадает с отчеством «Васильевич»). Унтер-офицер Лейб-гвардии Уланского Его Величества полка. Ранен/контужен 28.04.1915 у м. Городенка, выбыл в полевой госпиталь. Место рождения по этой карточке: Калужская губ., Жиздринский уезд, Песоченский Завод — это иной уезд, чем у Панкрата (Медынский), так что либо семья переезжала, либо это не совсем та ветка; пользователь считает совпадение достаточным. В базе есть ещё несколько документов на Щербакова Василия Ивановича (др. полки и даты — 318-й пехотный Черноярский, 240-й пехотный Ваврский, 15-й пехотный Шлиссельбургский), вероятно, о нём же на разных этапах службы; один из них указывает примерный год рождения 1882.'},
+  {id:'ivan_k_sh', name:'Иван Кузьмич Щербаков', meta:'ратник, ПМВ — не подтверждено', status:'weak', x:1580, y:1100, detail:'Найден в тот же день, что и Василий Иванович, но не назван пользователем как точно «наш». Ратник 255-го пехотного Аккерманского полка — того же полка, где служил Федот Иванович Арсенихин. Ранен/контужен 21.08.1915, выбыл в д. Смольники. Место рождения в источнике указано нечётко (Жиздринская волость, уезд обозначен как «Кургиновский» — возможно, ошибка скана). Связь с семьёй не установлена, приведён для полноты картины.'},
+  {id:'trofim', name:'Трофим Тимофеевич Арсенихин', meta:'ранен 1914, Августово', status:'weak', x:1580, y:1250, detail:'Рядовой 188-го пехотного Карсского полка. Ранен/контужен 11–13.10.1914 под д. Августово (Варшавско-Ивангородская операция), выбыл в Люблинский лазарет. Место рождения: Жиздринский уезд, Зимницкая волость — другая, не Милеевская. Несмотря на то же отчество «Тимофеевич», что у Евсигнея/Михаила/Трифона/Матвея, вероятно другая семья — другая волость.'},
+
+  {id:'evsigney', name:'Евсигней Тимофеевич Арсенихин', meta:'пропал без вести 29.01.1915, Вержболово', status:'strong', x:1860, y:100, detail:'Рядовой 221-го пехотного Рославльского полка. Пропал без вести 29.01.1915 у местечка Вержболово. Место рождения: Жиздринский уезд, Милеевская волость. Тот же день и то же место, что у Михаила Тимофеевича — почти наверняка родные братья, воевавшие и пропавшие вместе.'},
+  {id:'mikhail_t', name:'Михаил Тимофеевич Арсенихин', meta:'пропал без вести 29.01.1915, Вержболово', status:'strong', x:1860, y:220, detail:'Рядовой 221-го пехотного Рославльского полка. Пропал без вести 29.01.1915 у местечка Вержболово (тот же день и место, что у Евсигнея). Место рождения: Жиздринский уезд, Милеевская волость. Позже выяснилось — плен, лагерь для военнопленных в Ашаффенбурге (Бавария, Германия), переведён туда из Графенберга. По смежной записи — ≈1889 года рождения.'},
+  {id:'trifon', name:'Трифон Тимофеевич Арсенихин', meta:'≈1889–92, холост, болен', status:'strong', x:1860, y:340, detail:'На карточке прибывших указан возраст 25 лет, холост. Числился в Земском питательном пункте г. Гана, болен. Место рождения указано максимально точно: Калужская губ., Жиздринский уезд, Милеевская волость, сельцо Милеево.'},
+  {id:'matvey', name:'Матвей Тимофеевич Арсенихин', meta:'≈1872, ранен/болен 1917', status:'weak', x:1860, y:460, detail:'Рядовой 257-го пехотного запасного полка. Ранен/болен 01.02.1917, госпитализирован в Брянск (Орловская губ.). Возраст на карточке — 45 лет, то есть родился около 1872 года. Место рождения: Калужская губ., Жиздринский уезд — волость в карточке не указана, поэтому точная привязка к Милееву не подтверждена (в отличие от Евсигнея, Михаила и Трифона).'},
+  {id:'fedor_f', name:'Фёдор Федотович Арсенихин', meta:'1911, убит 22.09.1941', status:'strong', x:1860, y:580, detail:'Родился в 1911 в Хвастовичском районе. Убит 22.09.1941. Отчество «Федотович» указывает на отца Федота — вероятно, того самого Федота Ивановича, погибшего в 1915 году: Фёдору тогда было бы всего 4 года.'},
+
+  {id:'maxim_t', name:'Максим Трифонович Арсенихин', meta:'медаль «За оборону Москвы»', status:'strong', x:2140, y:340, detail:'Красноармеец, служил в Армейском управлении военно-полевого строительства 3 и 40-й сапёрной бригаде. Награждён медалью «За оборону Москвы» (дважды упомянуто награждение). Отчество «Трифонович» и подходящая хронология делают его вероятным сыном Трифона Тимофеевича.'},
+  {id:'dmitry_m', name:'Дмитрий Матвеевич Арсенихин', meta:'1904, погиб в плену, Финляндия', status:'strong', x:2140, y:460, detail:'Родился 26.10.1904 в Хвастовичском районе. Призван через Тульский РВК (Тульская обл.) — то есть к 1941 году уже не жил в Милееве, а работал в районе Тулы. Служил рядовым в 44-м стрелковом полку 42-й стрелковой дивизии. Выбыл в районе г. Лодейное Поле (Ленинградская обл.). Погиб в немецком плену — похоронен в Финляндии, Лапландия губ., г. Кеми, Айоссаари. Отчество «Матвеевич» и возраст (32 года к 1904-му у отца) делают его вероятным сыном Матвея Тимофеевича.'},
+
+  {id:'kirill_d', name:'Кирилл Моисеевич Дюндиков', meta:'Сибирь, Минусинский округ', status:'weak', x:1580, y:2000, detail:'Указан в списке земляков-фронтовиков посёлка Ключи, Каратузский район (Минусинский округ, Красноярский край); призван 1939 годом. Только совпадение фамилии — прямой связи с семьёй не установлено, но подтверждает присутствие фамилии Дюндиков в Сибири.'},
+  {id:'vlad_kh', name:'Владимир Владимиров Дюндиков', meta:'Харьковский регион', status:'weak', x:1580, y:2150, detail:'Встречается в подборке метрических записей харьковского региона на украинском генеалогическом форуме. Только совпадение фамилии — прямой связи с семьёй не установлено, но подтверждает присутствие фамилии Дюндиков на Украине, в Харьковской губернии.'},
+
+  {id:'grigory_m', name:'Григорий Михайлович Арсенихин', meta:'1911, д. Дубинино, Дзержинский р-н', status:'caution', x:1020, y:2450, detail:'Родился в 1911 в деревне Дубинино, Дзержинского района Калужской обл. Место призыва: Дзержинский РВК, Смоленская обл. Дата призыва: 1941. Воинское звание: рядовой. Воинская часть: 8-й рабочий батальон. Донесение, уточняющее потери. Фамилия та же (Арсенихин), но не Хвастовичский район — проверено, вероятно другая семья.'},
+  {id:'georgy_v', name:'Георгий Васильевич Арсенихин', meta:'1924, Карачевский р-н, Брянская обл.', status:'caution', x:1020, y:2600, detail:'Родился 08.12.1924 в Карачевском районе Брянской обл. Место призыва: Комсомольский РВК, Ивановская обл., дата призыва 22.08.1942. Воинские звания: лейтенант, подполковник, мл. лейтенант. Части: 1291-й стрелковый полк 110-й стрелковой дивизии, 354-й запасной стрелковый полк, 70-я стрелковая дивизия, 69-й стрелковый корпус. Награды: орден Отечественной войны I степени, медаль «За отвагу» (дважды), орден Красной Звезды (дважды), медаль «За победу над Германией», медаль «За взятие Кёнигсберга», медаль «За боевые заслуги». Фамилия та же (Арсенихин), но не Хвастовичский район — проверено, вероятно другая семья.'}
+];
+
+const EDGES = [
+  {a:'artem',b:'roman',t:'confirmed'}, {a:'artem',b:'marina',t:'confirmed'},
+  {a:'roman',b:'sergey_a',t:'confirmed'}, {a:'roman',b:'nadezhda',t:'confirmed'},
+  {a:'marina',b:'vasily_ch',t:'confirmed'}, {a:'marina',b:'valentina_d',t:'confirmed'},
+  {a:'tatiana_ch',b:'vasily_ch',t:'confirmed'}, {a:'tatiana_ch',b:'valentina_d',t:'confirmed'},
+  {a:'alexander_ch',b:'vasily_ch',t:'confirmed'}, {a:'alexander_ch',b:'valentina_d',t:'confirmed'},
+  {a:'tatiana_ch',b:'marina',t:'sib'}, {a:'marina',b:'alexander_ch',t:'sib'},
+  {a:'anastasia_ach',b:'alexander_ch',t:'confirmed'},
+  {a:'igor_d',b:'lyubov_d',t:'confirmed'},
+  {a:'valentina_d',b:'vladimir_d',t:'sib'}, {a:'vladimir_d',b:'lyubov_d',t:'sib'},
+  {a:'vladimir_d',b:'mikh_vl_d',t:'confirmed'}, {a:'vladimir_d',b:'alex_vl_d',t:'confirmed'},
+  {a:'mikh_vl_d',b:'alex_vl_d',t:'sib'},
+
+  {a:'sergey_a',b:'savely',t:'confirmed'}, {a:'sergey_a',b:'anna_k',t:'confirmed'},
+  {a:'nadezhda',b:'sergey_sh',t:'confirmed'}, {a:'nadezhda',b:'anastasia_r',t:'confirmed'},
+  {a:'sergey_sh',b:'pankrat_sh',t:'strong'},
+  {a:'anastasia_r',b:'mikhail_r',t:'sib'},
+  {a:'vasily_ch',b:'ivan_ch',t:'bridge'},
+  {a:'valentina_d',b:'mikhail_ed',t:'confirmed'},
+
+  {a:'savely',b:'kuzma',t:'confirmed'},
+  {a:'anna_k',b:'fedot_kud',t:'confirmed'},
+  {a:'anastasia_r',b:'fedor_r',t:'confirmed'}, {a:'anastasia_r',b:'alexandra_r',t:'confirmed'},
+  {a:'mikhail_ed',b:'emelyan_d',t:'weak'},
+
+  {a:'kuzma',b:'ivan_e',t:'sib'},
+  {a:'kuzma',b:'egor',t:'weak'}, {a:'ivan_e',b:'egor',t:'weak'},
+  {a:'nikifor_e',b:'ivan_e',t:'bridge'},
+  {a:'pankrat_sh',b:'vasily_i_sh',t:'strong'},
+
+  {a:'egor',b:'timofey',t:'bridge'},
+
+  {a:'timofey',b:'evsigney',t:'strong'}, {a:'timofey',b:'mikhail_t',t:'strong'},
+  {a:'timofey',b:'trifon',t:'strong'}, {a:'timofey',b:'matvey',t:'weak'},
+  {a:'evsigney',b:'mikhail_t',t:'sib-strong'},
+  {a:'matvey',b:'dmitry_m',t:'strong'}, {a:'trifon',b:'maxim_t',t:'strong'},
+  {a:'fedot_iv',b:'fedor_f',t:'strong'}
+];
+
+const CW=200, CH=64, MOBILE = window.innerWidth<640;
+
+function buildSVG(){
+  const svg = document.getElementById('lines');
+  const byId = {}; PEOPLE.forEach(p=>byId[p.id]=p);
+  const colors = {confirmed:'var(--confirmed)',strong:'var(--strong)','sib-strong':'var(--strong)',weak:'var(--weak)',bridge:'var(--ink-soft)',sib:'var(--ink-soft)'};
+  let html = '';
+  EDGES.forEach(e=>{
+    const A=byId[e.a], B=byId[e.b]; if(!A||!B) return;
+    const dashed = (e.t==='weak'||e.t==='bridge'||e.t==='strong'||e.t==='sib-strong');
+    const dash = e.t==='bridge' ? '2 6' : (dashed ? '5 5' : 'none');
+    const col = colors[e.t] || 'var(--line)';
+    let x1,y1,x2,y2;
+    if(e.t==='sib' || e.t==='sib-strong'){
+      x1 = A.x + CW/2; y1 = A.y + (A.y<B.y? CH : 0);
+      x2 = B.x + CW/2; y2 = B.y + (A.y<B.y? 0 : CH);
+      html += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="1.5" stroke-dasharray="${dash}"/>`;
+    } else {
+      const leftIsA = A.x < B.x;
+      const L = leftIsA?A:B, R = leftIsA?B:A;
+      x1 = L.x+CW; y1 = L.y+CH/2; x2 = R.x; y2 = R.y+CH/2;
+      const mid=(x1+x2)/2;
+      html += `<path d="M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}" fill="none" stroke="${col}" stroke-width="1.5" stroke-dasharray="${dash}"/>`;
+      if(e.t==='bridge'){
+        html += `<circle cx="${mid}" cy="${(y1+y2)/2}" r="10" fill="var(--card)" stroke="${col}" stroke-width="1"/><text x="${mid}" y="${(y1+y2)/2+4}" text-anchor="middle" font-size="13" fill="${col}" font-family="Georgia,serif">?</text>`;
+      }
+    }
+  });
+  svg.innerHTML = html;
+}
+
+function buildNodes(){
+  const canvas = document.getElementById('canvas');
+  PEOPLE.forEach(p=>{
+    const d = document.createElement('div');
+    d.className = 'node ' + (p.status==='root'?'root':p.status==='strong'?'strong':p.status==='weak'?'weak':p.status==='caution'?'caution':'');
+    d.style.left = p.x+'px'; d.style.top = p.y+'px';
+    d.dataset.id = p.id;
+    d.innerHTML = `<div class="nm">${p.name}</div>${p.meta?`<div class="mt">${p.meta}</div>`:''}`;
+    d.addEventListener('click', (ev)=>{ ev.stopPropagation(); selectNode(p.id); });
+    canvas.appendChild(d);
+  });
+}
+
+function selectNode(id){
+  document.querySelectorAll('.node').forEach(n=>n.classList.remove('selected'));
+  const el = document.querySelector(`.node[data-id="${id}"]`);
+  if(el) el.classList.add('selected');
+  const p = PEOPLE.find(x=>x.id===id); if(!p) return;
+  document.getElementById('p-name').textContent = p.name;
+  document.getElementById('p-meta').textContent = p.meta || '—';
+  const st = document.getElementById('p-status');
+  st.textContent = STATUS_LABEL[p.status]; st.className = 'status-tag tag-'+p.status;
+  document.getElementById('p-detail').textContent = p.detail || '';
+  document.getElementById('panel').classList.add('open');
+}
+document.getElementById('p-close').addEventListener('click', ()=>document.getElementById('panel').classList.remove('open'));
+
+// Pan & zoom
+const stage = document.getElementById('stage');
+const canvas = document.getElementById('canvas');
+let scale = MOBILE?0.34:0.5, panX=0, panY=0, isDown=false, startX=0, startY=0, startPanX=0, startPanY=0;
+
+function applyTransform(){ canvas.style.transform = `translate(${panX}px,${panY}px) scale(${scale})`; }
+
+function centerOn(px,py){
+  const rect = stage.getBoundingClientRect();
+  panX = rect.width/2 - (px+CW/2)*scale;
+  panY = rect.height/2 - (py+CH/2)*scale;
+  applyTransform();
+}
+
+function clampScale(s){ return Math.min(2.2, Math.max(0.18, s)); }
+
+stage.addEventListener('mousedown', e=>{ isDown=true; stage.classList.add('dragging'); startX=e.clientX; startY=e.clientY; startPanX=panX; startPanY=panY; });
+window.addEventListener('mousemove', e=>{ if(!isDown) return; panX = startPanX + (e.clientX-startX); panY = startPanY + (e.clientY-startY); applyTransform(); });
+window.addEventListener('mouseup', ()=>{ isDown=false; stage.classList.remove('dragging'); });
+
+stage.addEventListener('touchstart', e=>{ if(e.touches.length!==1) return; isDown=true; startX=e.touches[0].clientX; startY=e.touches[0].clientY; startPanX=panX; startPanY=panY; }, {passive:true});
+stage.addEventListener('touchmove', e=>{ if(!isDown||e.touches.length!==1) return; panX = startPanX + (e.touches[0].clientX-startX); panY = startPanY + (e.touches[0].clientY-startY); applyTransform(); }, {passive:true});
+stage.addEventListener('touchend', ()=>{ isDown=false; });
+
+stage.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const rect = stage.getBoundingClientRect();
+  const mx = e.clientX-rect.left, my = e.clientY-rect.top;
+  const wx = (mx-panX)/scale, wy = (my-panY)/scale;
+  const ns = clampScale(scale * (e.deltaY>0? 0.9:1.1));
+  panX = mx - wx*ns; panY = my - wy*ns; scale = ns;
+  applyTransform();
+}, {passive:false});
+
+document.getElementById('zin').addEventListener('click', ()=>{ const rect=stage.getBoundingClientRect(); const mx=rect.width/2,my=rect.height/2; const wx=(mx-panX)/scale, wy=(my-panY)/scale; scale=clampScale(scale*1.25); panX=mx-wx*scale; panY=my-wy*scale; applyTransform(); });
+document.getElementById('zout').addEventListener('click', ()=>{ const rect=stage.getBoundingClientRect(); const mx=rect.width/2,my=rect.height/2; const wx=(mx-panX)/scale, wy=(my-panY)/scale; scale=clampScale(scale*0.8); panX=mx-wx*scale; panY=my-wy*scale; applyTransform(); });
+document.getElementById('zreset').addEventListener('click', ()=>{ scale = MOBILE?0.34:0.5; centerOn(180,1451); });
+
+buildSVG(); buildNodes();
+window.addEventListener('resize', ()=>centerOn(180,1451));
+centerOn(180,1451);
+</script>
+</body>
+</html>
